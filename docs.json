@@ -22,8 +22,15 @@
         ]
       },
       {
-        "tab": "API reference",
-        "groups": []
+        "tab": "blog",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": [
+              "index"
+            ]
+          }
+        ]
       }
     ],
     "global": {
