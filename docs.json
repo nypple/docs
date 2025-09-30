@@ -25,9 +25,9 @@
         "tab": "blog",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Collective Memory News",
             "pages": [
-              "index"
+              "blog"
             ]
           }
         ]
