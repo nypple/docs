@@ -25,13 +25,13 @@
     "global": {
       "anchors": [
         {
-          "anchor": "Documentation",
-          "href": "https://docs.collectivememory.ai/attn-tokn",
+          "anchor": "Get the App",
+          "href": "https://www.collectivememory.ai/get-app",
           "icon": "book-open-cover"
         },
         {
-          "anchor": "Blog",
-          "href": "https://www.collectivememory.ai/blog",
+          "anchor": "Latest Activity",
+          "href": "https://www.collectivememory.ai/latest",
           "icon": "newspaper"
         }
       ]
