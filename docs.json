@@ -16,7 +16,9 @@
           {
             "group": "Getting started",
             "pages": [
-              "guides/attention-as-currency"
+              "guides/attention-as-currency",
+              "guides/staking-attn",
+              "guides/cash-out"
             ]
           }
         ]
