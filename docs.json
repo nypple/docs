@@ -20,17 +20,6 @@
             ]
           }
         ]
-      },
-      {
-        "tab": "Blog",
-        "groups": [
-          {
-            "group": "Collective Memory News",
-            "pages": [
-              "blog"
-            ]
-          }
-        ]
       }
     ],
     "global": {
