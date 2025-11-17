@@ -18,6 +18,7 @@
             "pages": [
               "guides/attention-as-currency",
               "guides/staking-attn",
+              "guides/liquidity",
               "guides/tiered-withdrawals",
               "guides/cash-out"
             ]
