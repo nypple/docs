@@ -16,6 +16,7 @@
           {
             "group": "Getting started",
             "pages": [
+              "guides/bonus",
               "guides/attention-as-currency",
               "guides/staking-attn",
               "guides/liquidity",
