@@ -9,6 +9,20 @@
   },
   "favicon": "/favicon.svg",
   "navigation": {
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Get the App",
+          "icon": "book-open-cover",
+          "href": "https://www.collectivememory.ai/get-app"
+        },
+        {
+          "anchor": "Latest Activity",
+          "icon": "newspaper",
+          "href": "https://www.collectivememory.ai/latest"
+        }
+      ]
+    },
     "tabs": [
       {
         "tab": "Guides",
@@ -21,26 +35,23 @@
               "guides/staking-attn",
               "guides/liquidity",
               "guides/tiered-withdrawals",
-              "guides/cash-out"
+              "guides/cash-out",
+              {
+                "group": "FAQ Articles",
+                "pages": [
+                  "untitled-page",
+                  "blocked-account",
+                  "user-behavior-policy-dos-don-ts-and-best-practices",
+                  "stake-and-redeem",
+                  "ranking-and-withdrawal-amount",
+                  "attn-withdrawal"
+                ]
+              }
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Get the App",
-          "href": "https://www.collectivememory.ai/get-app",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Latest Activity",
-          "href": "https://www.collectivememory.ai/latest",
-          "icon": "newspaper"
-        }
-      ]
-    }
+    ]
   },
   "logo": {
     "light": "/logo/light.svg",
