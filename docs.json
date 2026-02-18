@@ -35,18 +35,23 @@
               "guides/staking-attn",
               "guides/liquidity",
               "guides/tiered-withdrawals",
-              "guides/cash-out",
-              {
-                "group": "FAQ Articles",
-                "pages": [
-                  "untitled-page",
-                  "blocked-account",
-                  "user-behavior-policy-dos-don-ts-and-best-practices",
-                  "stake-and-redeem",
-                  "ranking-and-withdrawal-amount",
-                  "attn-withdrawal"
-                ]
-              }
+              "guides/cash-out"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "FAQ",
+        "pages": [
+          {
+            "group": "FAQ Articles",
+            "pages": [
+              "untitled-page",
+              "blocked-account",
+              "user-behavior-policy-dos-don-ts-and-best-practices",
+              "stake-and-redeem",
+              "ranking-and-withdrawal-amount",
+              "attn-withdrawal"
             ]
           }
         ]
