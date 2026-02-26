@@ -47,11 +47,12 @@
             "group": "FAQ Articles",
             "pages": [
               "contacting-support",
-              "blocked-account",
               "user-behavior-policy-dos-don-ts-and-best-practices",
-              "stake-and-redeem",
+              "blocked-account",
               "ranking-and-withdrawal-amount",
+              "stake-and-redeem",
               "attn-withdrawal",
+              "withdrawal-errors",
               "challenges"
             ]
           }
