@@ -53,7 +53,8 @@
               "stake-and-redeem",
               "attn-withdrawal",
               "withdrawal-errors",
-              "challenges"
+              "challenges",
+              "affiliate-and-affiliate-bonus"
             ]
           }
         ]
