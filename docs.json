@@ -54,7 +54,8 @@
               "attn-withdrawal",
               "withdrawal-errors",
               "affiliate-and-affiliate-bonus",
-              "challenges"
+              "challenges",
+              "login-errors"
             ]
           }
         ]
