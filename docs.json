@@ -56,7 +56,8 @@
               "withdrawal-errors",
               "affiliate-and-affiliate-bonus",
               "challenges",
-              "login-errors"
+              "login-errors",
+              "purchase-attn-and-p-attn"
             ]
           }
         ]
