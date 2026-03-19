@@ -61,6 +61,12 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "Building Blocks",
+        "pages": [
+          "the-reality-graph"
+        ]
       }
     ]
   },
