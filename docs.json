@@ -26,7 +26,7 @@
     "tabs": [
       {
         "tab": "Guides",
-        "groups": [
+        "pages": [
           {
             "group": "Getting started",
             "pages": [
@@ -37,7 +37,9 @@
               "guides/tiered-withdrawals",
               "guides/cash-out"
             ]
-          }
+          },
+          "economy-1-1-intro",
+          "3-motivations"
         ]
       },
       {
