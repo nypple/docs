@@ -1,0 +1,460 @@
+---
+title: "Collective Memory web2-web3"
+---
+
+## -- title: "Web2 ↔ Web3 Architecture" description: "How Collective Memory bridges Firebase with an immutable on-chain ledger on Base"
+
+# Web2 ↔ Web3 Architecture
+
+Collective Memory (CM) is a social content platform where users create **memories** (photos, videos, text) and other users express belief in those memories by **staking** the platform's native token. The system bridges a traditional Firebase/Firestore web2 backend with an immutable on-chain ledger on **Base** (Ethereum L2), creating a dual-layer architecture: fast UX in web2, verifiable truth on-chain.
+
+## System Overview
+
+```mermaid placement="top-right" actions={true}
+graph TD
+    subgraph Client["Mobile App (Flutter)"]
+        A[Stakes · Redeems · Creates Memories · Views]
+    end
+
+    subgraph Web2["Firebase / Firestore"]
+        B[(memory)]
+        C[(pATTN_transactions)]
+        D[(user_investments)]
+        E[Cloud Functions]
+    end
+
+    subgraph Web3["Base Chain · L2 · chainId 8453"]
+        F["pATTN Token (ERC-20)"]
+        G["LedgerRouter (UUPS Proxy)"]
+        H[Treasury]
+        I[User Vaults]
+        J[Memory Vaults]
+        K[Content Tokens]
+    end
+
+    A -- "Firestore reads/writes" --> B
+    A -- "Firestore reads/writes" --> C
+    A -- "Firestore reads/writes" --> D
+    E -- "Operator wallet signs txs" --> G
+    G --- F
+    G --- H
+    G --> I
+    G --> J
+    G --> K
+```
+
+---
+
+## Primitives
+
+The entire system is built on three primitives — each with a web2 representation (Firestore document) and a web3 representation (on-chain contracts).
+
+### pATTN — Proto Attention Token
+
+The unit of value in the system. A standard ERC-20 token deployed on Base.
+
+<Info>
+  The entire 1B supply is pre-minted to the deployer and transferred to the **Treasury** wallet. From there, the LedgerRouter moves pATTN in and out of user/memory vaults as directed by the backend.
+</Info>
+
+| Property | Value |
+| --- | --- |
+| Name | Proto Attention Token |
+| Symbol | `pATTN` |
+| Decimals | 6 |
+| Max Supply | 1,000,000,000 (1 billion) |
+| Contract | `PATTNToken.sol` |
+| Base Mainnet | [`0xd6fB...2939bc`](https://basescan.org/address/0xd6fB4C152CdD6a5c52eBd2eB5159D7F54c2939bc) |
+
+A future mainnet token **ATTN** (`ATTNToken.sol`) shares the same structure but has a separate deployment path.
+
+### User
+
+A user in web2 is a Firebase Auth UID (e.g. `ZY7pZu4txwcXw7nnOE0rmBU14g83`). On-chain, each user is identified by `bytes32(keccak256(userId))`.
+
+Each user gets **two on-chain entities**, deployed lazily on first interaction:
+
+| Entity | Contract | Purpose |
+| --- | --- | --- |
+| **User Vault** | `MinimalVaultUpgradeable` | Holds the user's pATTN balance and any Content Tokens received from staking |
+| **User Token** | `ContentERC20Upgradeable` | Per-user ERC-20 (1M supply, 6 decimals) — reserved for future social-graph tokenization |
+
+### Memory
+
+A memory is user-generated content (image, video, text) stored in Firestore under the `memory` collection. On-chain: `bytes32(keccak256(memoryId))`.
+
+Each memory gets **two on-chain entities**, also deployed lazily:
+
+| Entity | Contract | Purpose |
+| --- | --- | --- |
+| **Memory Vault** | `MinimalVaultUpgradeable` | Holds the pATTN staked into this memory (the memory's TVL) |
+| **Memory Token** | `ContentERC20Upgradeable` | Unique ERC-20 representing belief-shares in this memory. 1M supply, 6 decimals. Minted once, distributed to stakers proportionally |
+
+```mermaid
+graph LR
+    subgraph "On-chain per Memory"
+        MV["Memory Vault<br/><small>holds pATTN (TVL)</small>"]
+        MT["Memory Token<br/><small>1M ERC-20 shares</small>"]
+    end
+
+    subgraph "On-chain per User"
+        UV["User Vault<br/><small>holds pATTN + tokens</small>"]
+        UT["User Token<br/><small>1M ERC-20 (future)</small>"]
+    end
+
+    UV -- "pATTN →" --> MV
+    MV -- "Memory Tokens →" --> UV
+
+    style MV fill:#1a1a2e,stroke:#e94560,color:#fff
+    style MT fill:#1a1a2e,stroke:#0f3460,color:#fff
+    style UV fill:#16213e,stroke:#e94560,color:#fff
+    style UT fill:#16213e,stroke:#0f3460,color:#fff
+```
+
+---
+
+## The LedgerRouter — Central Orchestrator
+
+> **Contract**: `LedgerRouterUUPS.sol` (UUPS-upgradeable proxy) **Base Mainnet**: [`0x8B38...6f02`](https://basescan.org/address/0x8B3811D3E50d26E0D493e159b9F1F70A1a5a6f02)
+
+The Router is the single entry point for all on-chain operations. It owns every vault and token (as their OpenZeppelin `Ownable` owner), meaning **only the Router can move funds**. External callers must be the Router's owner (admin) or an approved operator.
+
+### Deterministic Addressing (CREATE2)
+
+All vaults and tokens are deployed via `CREATE2` with deterministic salts, making addresses predictable before deployment:
+
+```solidity
+User Vault    → keccak256("USER",          keccak256(userId))
+Memory Vault  → keccak256("CONTENT_VAULT", keccak256(memoryId))
+Memory Token  → keccak256("CONTENT_TOKEN", keccak256(memoryId))
+User Token    → keccak256("USER_TOKEN",    keccak256(userId))
+```
+
+The `compute*Address()` view functions return addresses at zero gas cost. The `Create*IfMissing()` functions are idempotent — calling them for an already-deployed entity is a no-op.
+
+### Beacon Proxy Pattern
+
+Vaults and tokens are `BeaconProxy` instances pointing to shared implementation beacons. Upgrading a beacon implementation upgrades **all** proxies simultaneously.
+
+```mermaid
+graph TD
+    VB["Vault Beacon<br/><small>MinimalVaultUpgradeable impl</small>"]
+    TB["Token Beacon<br/><small>ContentERC20Upgradeable impl</small>"]
+
+    VB --> UV1["User Vault A"]
+    VB --> UV2["User Vault B"]
+    VB --> MV1["Memory Vault X"]
+    VB --> MV2["Memory Vault Y"]
+
+    TB --> MT1["Memory Token X"]
+    TB --> MT2["Memory Token Y"]
+    TB --> UT1["User Token A"]
+    TB --> UT2["User Token B"]
+
+    style VB fill:#0f3460,stroke:#e94560,color:#fff
+    style TB fill:#0f3460,stroke:#e94560,color:#fff
+```
+
+### Operator Model
+
+The Router uses an allowlist of **operator wallets**. Backend Cloud Functions hold operator private keys and sign transactions — this is the bridge between web2 and web3.
+
+```mermaid
+sequenceDiagram
+    participant App as Mobile App
+    participant FS as Firestore
+    participant CF as Cloud Function
+    participant OP as Operator Wallet
+    participant RT as LedgerRouter
+    participant BC as Base Chain
+
+    App->>FS: Write pATTN_transaction
+    CF->>FS: Listen for new transactions
+    CF->>OP: Sign transaction
+    OP->>RT: Call Stake / Redeem / Sync
+    RT->>BC: Execute on-chain
+    BC-->>RT: Emit events
+```
+
+---
+
+## Core Operations
+
+### Stake (User → Memory)
+
+When a user stakes pATTN into a memory, pATTN flows from the user to the memory, and Memory Tokens flow back.
+
+```mermaid
+sequenceDiagram
+    participant T as Treasury
+    participant UV as User Vault
+    participant MV as Memory Vault
+    participant MT as Memory Token
+
+    Note over UV,MV: Router.Stake(userId, memoryId, attnAmt, tokenAmt)
+    T-->>UV: Fund if needed
+    UV->>MV: Transfer pATTN
+    MV->>UV: Transfer Memory Tokens
+    Note over UV: User now holds belief-shares
+    Note over MV: TVL increased
+```
+
+### Redeem Staker (User ← Memory)
+
+When a user redeems, pATTN returns and Memory Tokens are burned.
+
+```mermaid
+sequenceDiagram
+    participant T as Treasury
+    participant UV as User Vault
+    participant MV as Memory Vault
+
+    Note over UV,MV: Router.Redeem(userId, memoryId, attnAmt, tokenAmt)
+    MV->>UV: Return pATTN
+    T-->>UV: Cover shortfall if MV balance insufficient
+    Note over UV: Memory Tokens burned (routerBurnFrom)
+```
+
+The returned pATTN may be more or less than the original stake, depending on how the memory's TVL has grown through other stakes and injections.
+
+### Creator Redeem (Memory → Creator)
+
+Memory creators earn revenue when others stake. `CreatorRedeem` pays out from the Memory Vault with the Treasury as backstop:
+
+```solidity
+Router.CreatorRedeem(memoryId, creatorUserId, amount, memo)
+// pATTN: Memory Vault → Creator's User Vault (remainder from Treasury)
+```
+
+### Injections & Rewards
+
+| Operation | Router Function | Flow | Effect |
+| --- | --- | --- | --- |
+| **Memory Injection** | `Sync` | Treasury → Memory Vault | Boosts TVL without minting tokens (rewards existing stakers) |
+| **User Reward** | `Sync` | Treasury → User Vault | Grants pATTN directly (awards, bonuses) |
+| **User Penalty** | `Sync` | User Vault → Treasury | Claws back pATTN |
+
+### Sync — Universal Reconciliation
+
+`Sync` is the most important low-level operation. It moves either **pATTN** or **Memory Tokens** between three locations:
+
+```mermaid
+graph LR
+    T[Treasury] <--> UV[User Vault]
+    T <--> MV[Memory Vault]
+    UV <--> MV
+
+    style T fill:#533483,stroke:#e94560,color:#fff
+    style UV fill:#16213e,stroke:#e94560,color:#fff
+    style MV fill:#1a1a2e,stroke:#e94560,color:#fff
+```
+
+Every movement emits a canonical `Synced` event for full auditability. The higher-level `Sync(id, scope, target)` variant computes the delta automatically and calls the generic mover.
+
+---
+
+## How Value Is Created
+
+### Original Design: Uniswap AMM Pairs
+
+The original architecture used **Uniswap V2** to create an automated market for each memory:
+
+```mermaid
+graph LR
+    subgraph "Per-Memory Uniswap V2 Pool"
+        LP["Liquidity Pool<br/><small>10,000 Memory Tokens + 10 ATTN</small>"]
+    end
+
+    Stake["Stake (Buy)"] -- "ATTN →" --> LP
+    LP -- "← Memory Tokens" --> Stake
+    Redeem["Redeem (Sell)"] -- "Memory Tokens →" --> LP
+    LP -- "← ATTN" --> Redeem
+
+    style LP fill:#0f3460,stroke:#e94560,color:#fff
+```
+
+- **Staking** = buying Memory Tokens with ATTN through the pool (price goes up)
+- **Redeeming** = selling Memory Tokens back for ATTN (price goes down)
+- **Linking memories** = the `cmLiquidity` contract splits ATTN, buys tokens of two memories, and adds cross-liquidity — creating a **value bridge** between memories
+
+Each memory had a real-time market price driven by supply and demand via the constant product formula `x * y = k`.
+
+### Current Design: Managed Ledger Router
+
+The production system replaced Uniswap pools with a **managed ledger** for several reasons:
+
+<CardGroup cols={2}>
+  <Card title="Gas Efficient" icon="gas-pump">
+    No AMM swap fees or slippage per transaction
+  </Card>
+
+  <Card title="Predictable Pricing" icon="chart-line">
+    Token-to-pATTN ratios controlled by the backend
+  </Card>
+
+  <Card title="Batch Settlement" icon="layer-group">
+    Full pipeline runs off-chain, settles on-chain in batches
+  </Card>
+
+  <Card title="Gasless UX" icon="user-shield">
+    Users never need ETH or wallet interactions
+  </Card>
+</CardGroup>
+
+Each memory still gets a unique ERC-20 (1M supply, 6 decimals), and the bonding math (how many tokens per pATTN staked) is computed off-chain by the Firebase backend using the same AMM curve principles. The on-chain Router then executes the pre-calculated movements.
+
+<Tip>
+  **The AMM math still governs pricing** — it just runs in the Firebase layer rather than in a Uniswap pool. The on-chain contracts serve as the immutable settlement and custody layer.
+</Tip>
+
+---
+
+## On-Chain Contracts
+
+### MinimalVault — Custody
+
+Each vault is a simple token-holding contract with two operations:
+
+| Function | Direction | Description |
+| --- | --- | --- |
+| `pull(token, from, amount, memo)` | Inbound | Transfers tokens into the vault (requires prior approval) |
+| `push(token, to, amount, memo)` | Outbound | Transfers tokens out of the vault |
+
+Every movement emits a `LedgerMove` event with a sequential nonce, token address, direction, counterparty, amount, and memo string — creating a complete, auditable on-chain history.
+
+<Warning>
+  Only the Router (as `owner`) can call `pull` and `push`. No user or external contract can directly move funds from a vault.
+</Warning>
+
+### ContentERC20 — Memory Token
+
+A minimal ERC-20 with two special capabilities:
+
+| Function | Description |
+| --- | --- |
+| `mintOnce(to, amount)` | Can only be called once (when `totalSupply == 0`). Mints the full supply into the Memory Vault |
+| `routerBurnFrom(from, amount)` | Allows the Router to burn tokens from any vault it controls (used during staker redemptions) |
+
+Fixed at 6 decimals. Fully standard ERC-20 otherwise (transferable, queryable).
+
+### Content Provenance
+
+The Router records provenance metadata linking on-chain entities to off-chain content storage:
+
+```solidity
+event MemoryContentRecorded(memoryId, memoryToken, memoryIdStr, blobId, provider)
+event MemoryInterfaceRecorded(memoryId, memoryToken, memoryIdStr, url, provider)
+```
+
+This creates a verifiable chain: **token → blobId/URL → content** (e.g., a Walrus blob or IPFS hash).
+
+---
+
+## Deployment Topology
+
+### Base Mainnet (chainId 8453)
+
+| Component | Address |
+| --- | --- |
+| **pATTN Token** | [`0xd6fB4C152CdD6a5c52eBd2eB5159D7F54c2939bc`](https://basescan.org/address/0xd6fB4C152CdD6a5c52eBd2eB5159D7F54c2939bc) |
+| **LedgerRouter Proxy** | [`0x8B3811D3E50d26E0D493e159b9F1F70A1a5a6f02`](https://basescan.org/address/0x8B3811D3E50d26E0D493e159b9F1F70A1a5a6f02) |
+| **Vault Beacon** | [`0x37ee24dc4F643E01c646939085dB74796aB79B61`](https://basescan.org/address/0x37ee24dc4F643E01c646939085dB74796aB79B61) |
+| **Token Beacon** | [`0x9F03C1182cb598F81bFdB12f7EFd8288673A6930`](https://basescan.org/address/0x9F03C1182cb598F81bFdB12f7EFd8288673A6930) |
+| **Treasury** | [`0xba9Ac7D65f5497b25322Cd7E336f6dA2Bf832A92`](https://basescan.org/address/0xba9Ac7D65f5497b25322Cd7E336f6dA2Bf832A92) |
+| **Admin** | [`0x25fF289bF5517ceCd001b614032ec6D880Ee755F`](https://basescan.org/address/0x25fF289bF5517ceCd001b614032ec6D880Ee755F) |
+
+### Upgrade Path
+
+```mermaid
+graph LR
+    subgraph "Router (UUPS)"
+        RP["Proxy<br/><small>stable address</small>"] --> RI["Impl V4<br/><small>upgradeToAndCall</small>"]
+    end
+
+    subgraph "Vaults (Beacon)"
+        VB2["Beacon"] --> VI["Impl V3"]
+        VB2 --> VA["All Vaults<br/><small>upgrade instantly</small>"]
+    end
+
+    subgraph "Tokens (Beacon)"
+        TB2["Beacon"] --> TI["Impl V3"]
+        TB2 --> TA["All Tokens<br/><small>upgrade instantly</small>"]
+    end
+
+    style RP fill:#0f3460,stroke:#e94560,color:#fff
+    style VB2 fill:#0f3460,stroke:#e94560,color:#fff
+    style TB2 fill:#0f3460,stroke:#e94560,color:#fff
+```
+
+Each version uses `reinitializer(N)` for safe post-upgrade initialization of new storage slots, and `__gap` arrays to reserve future storage space.
+
+---
+
+## The Pipeline — Web2 to Web3 Flow
+
+The reconciliation pipeline ensures on-chain state stays consistent with the web2 ledger, even if transactions arrive out of order.
+
+```mermaid
+graph TD
+    A["1. Ensure Infrastructure"] --> B["2. Reconcile State"]
+    B --> C["3. Execute Window"]
+    C --> D["4. Emit Events"]
+
+    A1["CreateMemoryVaultIfMissing<br/>CreateMemoryTokenIfMissing<br/>CreateUserVaultIfMissing<br/>Fund new vaults from Treasury"] -.-> A
+
+    B1["Balance each user's Memory Token<br/>holdings to match cumulative<br/>stakes − redeems<br/><br/>Balance memory pATTN TVL to match<br/>stakes − redeems − creator_payouts<br/>+ injections"] -.-> B
+
+    C1["Stake → pATTN user→memory,<br/>tokens memory→user<br/><br/>Redeem → pATTN memory→user,<br/>burn tokens<br/><br/>Creator Redeem → pay from<br/>memory vault"] -.-> C
+
+    D1["Every movement produces<br/>on-chain events<br/><br/>Indexers and explorers can<br/>reconstruct full history"] -.-> D
+
+    style A fill:#533483,stroke:#e94560,color:#fff
+    style B fill:#0f3460,stroke:#e94560,color:#fff
+    style C fill:#1a1a2e,stroke:#e94560,color:#fff
+    style D fill:#16213e,stroke:#e94560,color:#fff
+```
+
+This **"balance-to-moment, then execute"** pattern ensures the on-chain state is always consistent with the web2 ledger.
+
+---
+
+## Repository Map
+
+| Repo | Purpose | Status |
+| --- | --- | --- |
+| [`cm-minimal-contracts`](https://github.com/collective-memory-dev/cm-minimal-contracts) | Production ledger router, vaults, tokens (Hardhat \+ OZ Upgrades) | **Active — Base mainnet** |
+| [`cm-contracts`](https://github.com/collective-memory-dev/cm-contracts) | ATTNToken, ATTNTreasury, BeliefVault/VaultFactory, gasless treasury (Foundry) | Base Sepolia |
+| [`contracts`](https://github.com/collective-memory-dev/contracts) | Original Uniswap V2 AMM prototype (Hardhat) | Legacy / reference |
+| [`cm-genlayer-example`](https://github.com/collective-memory-dev/cm-genlayer-example) | GenLayer integration POC | Experimental |
+| [`genlayer-poc`](https://github.com/collective-memory-dev/genlayer-poc) | GenLayer proof of concept | Experimental |
+| [`app-firebase-functions`](https://github.com/collective-memory-dev/app-firebase-functions) | Firebase Cloud Functions — web2 backend driving the pipeline | **Active** |
+
+---
+
+## Key Design Decisions
+
+<AccordionGroup>
+  <Accordion title="Gasless UX">
+    Users never interact with the blockchain directly. Backend operator wallets pay all gas. Users don't need wallets or ETH — the entire crypto layer is invisible to them.
+  </Accordion>
+
+  <Accordion title="Deterministic Deployment (CREATE2)">
+    Vault and token addresses are known before deployment. The backend can pre-compute addresses and reference them in Firestore without waiting for on-chain confirmation.
+  </Accordion>
+
+  <Accordion title="Beacon Proxies">
+    A single upgrade to a beacon implementation upgrades thousands of vaults or tokens simultaneously — critical for a system that creates a new vault and token per memory.
+  </Accordion>
+
+  <Accordion title="Treasury as Backstop">
+    All pATTN originates from the Treasury. When a Memory Vault doesn't have enough pATTN to pay a redemption (because some was already paid to the creator), the Treasury covers the difference.
+  </Accordion>
+
+  <Accordion title="Memo Strings for Audit Trail">
+    Every on-chain movement carries a `memo` parameter that links back to the web2 transaction ID, enabling bidirectional audit trails between Firestore and the blockchain.
+  </Accordion>
+
+  <Accordion title="Managed AMM">
+    Moving the bonding curve math off-chain retains the original Uniswap-inspired economic model while dramatically reducing gas costs and enabling batch settlement.
+  </Accordion>
+</AccordionGroup>
