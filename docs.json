@@ -63,7 +63,8 @@
               "affiliate-and-affiliate-bonus",
               "challenges",
               "login-errors",
-              "purchase-attn-and-p-attn"
+              "purchase-attn-and-p-attn",
+              "untitled-page"
             ]
           }
         ]
@@ -84,7 +85,8 @@
       {
         "tab": "Announcements",
         "pages": [
-          "withdrawals-savings-debit-card-may-2026"
+          "withdrawals-savings-debit-card-may-2026",
+          "investors"
         ]
       }
     ]
